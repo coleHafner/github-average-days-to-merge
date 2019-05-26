@@ -3,11 +3,13 @@ const chalk = require('chalk');
 
 const user = process.argv[2];
 const oAuthToken = process.argv[3];
+const org = process.argv[4] || 'NordicPlayground';
+const repo = process.argv[5] || 'nrfcloud-web-frontend';
 
 if (user === 'help') {
     console.log(chalk.cyan(`
 
-Example: node index.js <gitHub username> <gitHub oAuth token>
+Example: node index.js <username> <oAuth token> <org> <repo>
 
 `));
     return;
@@ -22,7 +24,7 @@ Error: User and oAuth token required.
     process.exit();
 }
 
-const uri = 'https://api.github.com/repos/NordicPlayground/nrfcloud-web-frontend/pulls?state=closed&per_page=100';
+const uri = `https://api.github.com/repos/${org}/${repo}/pulls?state=closed&per_page=100`;
 
 const opts = {
     uri,
