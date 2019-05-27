@@ -5,22 +5,12 @@ const user = process.argv[2];
 const oAuthToken = process.argv[3];
 const org = process.argv[4] || 'NordicPlayground';
 const repo = process.argv[5] || 'nrfcloud-web-frontend';
-const usageExample = 'Usage: node index.js <username> <oAuth token> <org> <repo>';
+const analyzeTotalPrs = process.argv[6] || 30;
 
-function Log() {
-    const out = (msg, color) => console.log(chalk[color](msg));
-    this.info = msg => out(msg, 'gray');
-    this.error =  msg => out(msg, 'red');
-    this.help =  msg => out(msg, 'cyan');
-    this.debug =  msg => out(msg, 'yellow');
-    this.summary =  msg => out(msg, 'green');
-    this.header = (msg, func) => this[func || 'info'](`
-*************************************
-${msg.toUpperCase()}
-*************************************`);
-}
+const resultsPerPage = analyzeTotalPrs >= 100 ? 100 : analyzeTotalPrs;
+const usageExample = 'Usage: node index.js <username> <oAuth token> <org> <repo> <total prs>';
 
-if (user === 'help') {
+if (['help', '--help'].includes(user)) {
     help(`
 
 ${usageExample}
@@ -40,19 +30,19 @@ ${usageExample}
     process.exit();
 }
 
-const uri = `https://api.github.com/repos/${org}/${repo}/pulls?state=closed&per_page=30`;
-
-const opts = {
-    uri,
-    method: 'GET',
-    resolveWithFullResponse: true,
-    headers: {
-        authorization: `token ${oAuthToken}`, 
-        'User-Agent': user
-    },
-};
-
 (async () => {
+    const uri = `https://api.github.com/repos/${org}/${repo}/pulls?state=closed&per_page=${resultsPerPage}`;
+
+    const opts = {
+        uri,
+        method: 'GET',
+        resolveWithFullResponse: true,
+        headers: {
+            authorization: `token ${oAuthToken}`, 
+            'User-Agent': user
+        },
+    };
+
     const l = new Log();
     let nextLink = null;
     let allPulls = [];
@@ -67,20 +57,13 @@ const opts = {
         const headers = res.headers;
         const pulls = JSON.parse(res.body);
         const linksArr = headers.link.split(',');
-        nextLink = null;
-
-        // for (let i = 0, len = linksArr.length; i < len; ++i) {
-        //     const curLink = linksArr[i].split('; ');
-        //     const link = curLink[0] || null;
-        //     const linkType = curLink[1].split('=')[1]|| null;
-
-        //     if (linkType.replace(/"/g, '') === 'next') {
-        //         nextLink = link.replace(/[\s,>,<]/g, '');
-        //         break;
-        //     }
-        // }
 
         allPulls.push(...pulls);
+
+        nextLink = allPulls.length < analyzeTotalPrs
+            ? getNextLink(linksArr)
+            : null;
+
     } while(nextLink !== null);
 
     const secondsInDay = 60* 60 * 24;
@@ -90,6 +73,10 @@ const opts = {
 
     l.header('all pulls', 'info');
     allPulls.forEach(pull => {
+        if ((totalNotMerged + totalMergedPrs) > analyzeTotalPrs) {
+            return;
+        }
+
         if (!pull.created_at || !pull.merged_at) {
             totalNotMerged++;
             return;
@@ -111,9 +98,40 @@ const opts = {
     l.header('totals', 'summary');
 
     l.summary(`
-total prs: ${totalMergedPrs + totalNotMerged}
-total merged: ${totalMergedPrs}
-avg wait time: ${avgTimeToMerge} days
+Total prs: ${totalMergedPrs + totalNotMerged}
+Total merged: ${totalMergedPrs}
+Avg time-to-merge: ${avgTimeToMerge} days
 
     `);
 })()
+
+function Log() {
+    const out = (msg, color) => console.log(chalk[color](msg));
+    this.info = msg => out(msg, 'gray');
+    this.error =  msg => out(msg, 'red');
+    this.help =  msg => out(msg, 'cyan');
+    this.debug =  msg => out(msg, 'yellow');
+    this.summary =  msg => out(msg, 'green');
+    this.header = (msg, func) => this[func || 'info'](`
+*************************************
+${msg.toUpperCase()}
+*************************************`);
+}
+
+
+function getNextLink(linksArr) {
+    let nextLink = null;
+    
+    for (let i = 0, len = linksArr.length; i < len; ++i) {
+        const curLink = linksArr[i].split('; ');
+        const link = curLink[0] || null;
+        const linkType = curLink[1].split('=')[1]|| null;
+
+        if (linkType.replace(/"/g, '') === 'next') {
+            nextLink = link.replace(/[\s,>,<]/g, '');
+            break;
+        }
+    }
+
+    return nextLink;
+}
